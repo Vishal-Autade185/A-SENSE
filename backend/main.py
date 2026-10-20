@@ -80,6 +80,11 @@ async def lifespan(app: FastAPI):
     heartbeat.register_command_executor(execute_relay_command)
     heartbeat.start_heartbeat()
 
+    # Start Telegram Bot integration
+    import telegram_bot
+    telegram_bot.register_handlers(agent.chat_with_agent, execute_relay_command)
+    telegram_bot.start_telegram_bot()
+
     global mqtt_client
     mqtt_client = create_mqtt_client()
     try:
@@ -219,6 +224,20 @@ def send_device_command(device_id: str, req: RelayCommandRequest):
 def list_scheduled_tasks():
     import heartbeat
     return {"tasks": heartbeat.get_active_tasks()}
+
+class AutoModeRequest(BaseModel):
+    enabled: bool
+
+@app.get("/api/automation/auto-mode")
+def get_auto_mode():
+    import heartbeat
+    return {"auto_mode": heartbeat.get_auto_mode()}
+
+@app.post("/api/automation/auto-mode")
+def set_auto_mode(req: AutoModeRequest):
+    import heartbeat
+    new_val = heartbeat.set_auto_mode(req.enabled)
+    return {"status": "success", "auto_mode": new_val}
 
 @app.get("/api/proactive/alerts")
 def get_pending_alerts():

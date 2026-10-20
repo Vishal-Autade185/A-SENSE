@@ -69,8 +69,13 @@
         <h1>A-SENSE Dashboard</h1>
         <p style="color: var(--muted); font-size: 0.85rem;">Local Smart-Environment Orchestrator</p>
       </div>
-      <div id="system-status">
-        <span class="badge badge-online">System Live</span>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button id="auto-mode-btn" class="btn" style="background: #334155; font-size: 0.8rem; padding: 6px 12px; color: white;" onclick="toggleAutoMode()">
+          ⚡ Auto-Mode: OFF
+        </button>
+        <div id="system-status">
+          <span class="badge badge-online">System Live</span>
+        </div>
       </div>
     </header>
 
@@ -325,11 +330,58 @@
       } catch (e) {}
     }
 
+    // Auto Mode Toggle
+    let autoModeState = false;
+
+    async function fetchAutoMode() {
+      try {
+        const res = await fetch('/api/automation/auto-mode');
+        if (res.ok) {
+          const data = await res.json();
+          autoModeState = data.auto_mode;
+          updateAutoModeButton();
+        }
+      } catch (e) {}
+    }
+
+    async function toggleAutoMode() {
+      autoModeState = !autoModeState;
+      try {
+        const res = await fetch('/api/automation/auto-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: autoModeState })
+        });
+        if (res.ok) {
+          appendLog(`Autonomous Mode is now: ${autoModeState ? 'ENABLED' : 'DISABLED'}`);
+          updateAutoModeButton();
+        }
+      } catch (e) {
+        appendLog(`Failed to update auto mode: ${e.message}`);
+      }
+    }
+
+    function updateAutoModeButton() {
+      const btn = document.getElementById('auto-mode-btn');
+      if (autoModeState) {
+        btn.innerText = '⚡ Auto-Mode: ON (Autonomous)';
+        btn.style.background = 'var(--accent)';
+        btn.style.color = '#090d16';
+        btn.style.fontWeight = '700';
+      } else {
+        btn.innerText = '⚡ Auto-Mode: OFF (Ask First)';
+        btn.style.background = '#334155';
+        btn.style.color = 'white';
+        btn.style.fontWeight = '600';
+      }
+    }
+
     // Poll state every 2 seconds, check proactive alerts every 4 seconds
     setInterval(updateState, 2000);
     setInterval(checkProactiveAlerts, 4000);
     updateState();
     checkProactiveAlerts();
+    fetchAutoMode();
   </script>
 </body>
 </html>

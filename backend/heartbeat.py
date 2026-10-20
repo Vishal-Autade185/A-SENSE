@@ -31,6 +31,18 @@ active_tasks = {}
 tasks_lock = threading.Lock()
 running = False
 
+# Auto Mode Setting (True = automatically act; False = ask first via Telegram/Dashboard)
+auto_mode_enabled = False
+
+def set_auto_mode(enabled: bool):
+    global auto_mode_enabled
+    auto_mode_enabled = enabled
+    logger.info(f"Auto Mode is now: {'ENABLED (Autonomous)' if enabled else 'DISABLED (Semi-Autonomous)'}")
+    return auto_mode_enabled
+
+def get_auto_mode():
+    return auto_mode_enabled
+
 # Generalized Temperature Automation Rule
 # e.g.:
 # {"enabled": True, "condition": "above" | "below", "threshold": 35.0, "device_id": "relay-01", "target_state": "ON" | "OFF"}
@@ -80,8 +92,124 @@ def schedule_timed_action(device_id: str, target_state: str, delay_seconds: floa
             "description": description or f"Switch {device_id} to {target_state} in {delay_seconds}s",
             "created_at": datetime.now(timezone.utc).isoformat()
         }
-    logger.info(f"Heartbeat: Scheduled {task_id} -> {device_id} {target_state} in {delay_seconds}s")
     return task_id
+
+def schedule_reminder(message: str, delay_seconds: float):
+    """Schedule a reminder message to be sent via Telegram / Dashboard."""
+    task_id = f"remind-{int(time.time()*1000)}"
+    now = time.time()
+    trigger_at = now + delay_seconds
+
+    with tasks_lock:
+        active_tasks[task_id] = {
+            "task_id": task_id,
+            "type": "reminder",
+            "message": message,
+            "trigger_at": trigger_at,
+            "description": f"Reminder: '{message}' in {int(delay_seconds)}s",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    logger.info(f"Heartbeat: Scheduled reminder {task_id}: '{message}' in {int(delay_seconds)}s")
+    return task_id
+
+def schedule_reminder_at_clock_time(message: str, time_str: str):
+    """Schedule a reminder message at a specific clock time or relative duration (e.g. '5min', '9am', '09:00', '10 sec')."""
+    from datetime import datetime, timedelta
+    import re
+    now_dt = datetime.now()
+
+    cleaned = str(time_str).lower().strip()
+
+    # Check for relative durations like '5min', '5 min', '10 sec', '1 hour'
+    rel_match = re.search(r"(\d+(?:\.\d+)?)\s*(s|sec|second|m|min|minute|h|hr|hour)s?", cleaned)
+    if rel_match:
+        val = float(rel_match.group(1))
+        unit = rel_match.group(2)
+        if unit.startswith("h"):
+            delay_seconds = val * 3600
+        elif unit.startswith("m"):
+            delay_seconds = val * 60
+        else:
+            delay_seconds = val
+        return schedule_reminder(message, delay_seconds)
+
+    is_pm = "pm" in cleaned
+    is_am = "am" in cleaned
+    cleaned = cleaned.replace("am", "").replace("pm", "").strip()
+
+    try:
+        parts = cleaned.split(":")
+        hour = int(parts[0])
+        minute = int(parts[1]) if len(parts) > 1 else 0
+
+        if is_pm and hour < 12:
+            hour += 12
+        elif is_am and hour == 12:
+            hour = 0
+
+        target_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target_dt <= now_dt:
+            target_dt += timedelta(days=1)
+
+        delay_seconds = (target_dt - now_dt).total_seconds()
+        return schedule_reminder(message, delay_seconds)
+    except Exception as ex:
+        logger.warning(f"Could not parse clock time '{time_str}', defaulting to 60s reminder: {ex}")
+        return schedule_reminder(message, 60.0)
+
+def schedule_at_clock_time(device_id: str, target_state: str, time_str: str, description: str = ""):
+    """
+    Schedule an action at a specific clock time (e.g. '05:00', '5:00 am', '17:30', '5pm')
+    or relative duration (e.g. '5min', '10s').
+    Computes exact seconds until that time.
+    """
+    from datetime import datetime, timedelta
+    import re
+    now_dt = datetime.now()
+
+    cleaned = str(time_str).lower().strip()
+
+    # Check for relative durations like '5min', '10s', '1h'
+    rel_match = re.search(r"(\d+(?:\.\d+)?)\s*(s|sec|second|m|min|minute|h|hr|hour)s?", cleaned)
+    if rel_match:
+        val = float(rel_match.group(1))
+        unit = rel_match.group(2)
+        if unit.startswith("h"):
+            delay_seconds = val * 3600
+        elif unit.startswith("m"):
+            delay_seconds = val * 60
+        else:
+            delay_seconds = val
+        desc = description or f"Switch {device_id} to {target_state} in {int(delay_seconds)}s"
+        return schedule_timed_action(device_id, target_state, delay_seconds, desc)
+
+    is_pm = "pm" in cleaned
+    is_am = "am" in cleaned
+    cleaned = cleaned.replace("am", "").replace("pm", "").strip()
+
+    try:
+        parts = cleaned.split(":")
+        hour = int(parts[0])
+        minute = int(parts[1]) if len(parts) > 1 else 0
+
+        if is_pm and hour < 12:
+            hour += 12
+        elif is_am and hour == 12:
+            hour = 0
+
+        target_dt = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        # If the target time already passed today, schedule for tomorrow
+        if target_dt <= now_dt:
+            target_dt += timedelta(days=1)
+
+        delay_seconds = (target_dt - now_dt).total_seconds()
+        desc = description or f"Switch {device_id} to {target_state} at {time_str} (in {round(delay_seconds/3600, 1)}h)"
+        
+        logger.info(f"Heartbeat: Clock schedule set -> {device_id} to {target_state} at {target_dt.strftime('%Y-%m-%d %H:%M')} (delay: {int(delay_seconds)}s)")
+        return schedule_timed_action(device_id, target_state, delay_seconds, desc)
+    except Exception as ex:
+        logger.warning(f"Could not parse clock time '{time_str}', defaulting to 60s delay: {ex}")
+        return schedule_timed_action(device_id, target_state, 60.0, description or f"Switch {device_id} to {target_state} in 60s")
 
 def schedule_relay_cycle(device_id: str, interval_seconds: float, cycles: int):
     """
@@ -201,16 +329,48 @@ def _heartbeat_loop():
 
                         # Proactive rule: Room is warm (>= 32.5C) and Fan is OFF
                         if current_temp >= 32.5 and fan_state == "OFF":
-                            cur.execute("SELECT id FROM proactive_alerts WHERE alert_type='heat_warning' AND status='pending'")
-                            if not cur.fetchone():
-                                msg = f"Room temperature is high ({current_temp}°C) and the fan is OFF. Would you like to turn it ON?"
-                                now_utc = datetime.now(timezone.utc).isoformat()
-                                cur.execute("""
-                                    INSERT INTO proactive_alerts (alert_type, message, device_id, recommended_state, status, created_at)
-                                    VALUES ('heat_warning', ?, 'relay-01', 'ON', 'pending', ?)
-                                """, (msg, now_utc))
-                                conn.commit()
-                                logger.info(f"[PROACTIVE ALERT GENERATED] {msg}")
+                            if auto_mode_enabled:
+                                # AUTONOMOUS MODE: Switch relay immediately!
+                                logger.info(f"[AUTO-MODE] High temp detected ({current_temp}°C). Autonomously switching relay-01 ON!")
+                                command_executor_fn("relay-01", "ON")
+                                log_event("AUTO_MODE_ACTION", "INFO", f"Autonomous activation of relay-01 at {current_temp}°C")
+                                
+                                # Notify user on Telegram about the autonomous action
+                                try:
+                                    import telegram_bot
+                                    telegram_bot.send_telegram_message(
+                                        f"⚡ *[Autonomous Action]*\nRoom temperature reached *{current_temp}°C*. I have turned *ON* the fan (relay-01) for you."
+                                    )
+                                except Exception:
+                                    pass
+                            else:
+                                # SEMI-AUTONOMOUS MODE: Ask user first via Dashboard and Telegram!
+                                cur.execute("SELECT id FROM proactive_alerts WHERE alert_type='heat_warning' AND status='pending'")
+                                if not cur.fetchone():
+                                    msg = f"Room temperature is high ({current_temp}°C) and the fan is OFF. Would you like to turn it ON?"
+                                    now_utc = datetime.now(timezone.utc).isoformat()
+                                    cur.execute("""
+                                        INSERT INTO proactive_alerts (alert_type, message, device_id, recommended_state, status, created_at)
+                                        VALUES ('heat_warning', ?, 'relay-01', 'ON', 'pending', ?)
+                                    """, (msg, now_utc))
+                                    conn.commit()
+                                    logger.info(f"[PROACTIVE ALERT GENERATED] {msg}")
+
+                                    # Send interactive Telegram alert with clickable buttons!
+                                    try:
+                                        import telegram_bot
+                                        keyboard = [
+                                            [
+                                                {"text": " Turn ON Fan", "callback_data": "cmd:relay-01:ON"},
+                                                {"text": "❌ Dismiss", "callback_data": "dismiss"}
+                                            ]
+                                        ]
+                                        telegram_bot.send_telegram_message(
+                                            f"🌡 *Proactive Home Suggestion*\n\nRoom temperature is *{current_temp}°C* and the fan is OFF.\nWould you like me to turn it ON?",
+                                            inline_keyboard=keyboard
+                                        )
+                                    except Exception:
+                                        pass
                     conn.close()
                 except Exception as pe:
                     pass
@@ -219,7 +379,19 @@ def _heartbeat_loop():
                 task_id = task["task_id"]
                 device_id = task.get("device_id")
 
-                if task["type"] == "one_off":
+                if task["type"] == "reminder":
+                    remind_msg = task.get("message", "Reminder!")
+                    logger.info(f"Heartbeat firing reminder task {task_id}: {remind_msg}")
+                    log_event("REMINDER_TRIGGERED", "INFO", remind_msg, task)
+                    try:
+                        import telegram_bot
+                        telegram_bot.send_telegram_message(f"⏰ <b>Reminder:</b> {remind_msg}")
+                    except Exception as te:
+                        logger.error(f"Failed to dispatch Telegram reminder: {te}")
+                    with tasks_lock:
+                        active_tasks.pop(task_id, None)
+
+                elif task["type"] == "one_off":
                     target_state = task["target_state"]
                     logger.info(f"Heartbeat firing one-off task {task_id}: {device_id} -> {target_state}")
                     if command_executor_fn:
