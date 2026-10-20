@@ -3,6 +3,9 @@
 *.env
 *.env.local
 
+# Internal context logs
+context.md
+
 # SQLite Database
 *.db
 *.sqlite
