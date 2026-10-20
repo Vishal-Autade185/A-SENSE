@@ -125,27 +125,32 @@ A-SENSE is architected as an expandable multi-agent foundation. The framework ca
 
 ```mermaid
 flowchart TD
-    subgraph Multi-Room IoT Mesh
-        R1[Living Room: Multi-Sensor & AC Control]
-        R2[Bedroom: Sleep Schedule & Ambient Fan]
-        R3[Kitchen: Gas/Smoke & Water Leak Detection]
-        PIR[PIR / mmWave Radar Human Presence Detection]
+    subgraph MESH["Multi-Room IoT Mesh"]
+        R1["Living Room: Multi-Sensor & AC Control"]
+        R2["Bedroom: Sleep Schedule & Ambient Fan"]
+        R3["Kitchen: Gas/Smoke & Water Leak Detection"]
+        PIR["PIR / mmWave Radar Human Presence Detection"]
     end
 
-    subgraph Vision & Security Subsystem
-        CAM1[ESP32-CAM / RTSP IP Cameras]
-        NPU[Edge Vision Engine: YOLOv8 / MobileNet on Pi 5]
-        ALERT[Real-Time Threat Detector: Intruder / Fire / Unknown Face]
+    subgraph VISION["Vision & Security Subsystem"]
+        CAM1["ESP32-CAM / RTSP IP Cameras"]
+        NPU["Edge Vision Engine: YOLOv8 / MobileNet on Pi 5"]
+        ALERT["Real-Time Threat Detector: Intruder / Fire / Unknown Face"]
     end
 
-    subgraph Autonomous Central Agent Hub
-        PI[A-SENSE Central Orchestrator]
+    subgraph HUB["Autonomous Central Agent Hub"]
+        PI["A-SENSE Central Orchestrator"]
     end
 
-    Multi-Room IoT Mesh -->|MQTT Mesh / Zigbee| PI
+    USER["User Smartphone"]
+
+    R1 --> PI
+    R2 --> PI
+    R3 --> PI
+    PIR --> PI
     CAM1 -->|RTSP Video Stream| NPU
     NPU -->|Security Events & Snapshots| PI
-    PI -->|Instant Telegram Snapshot & Audio Siren| USER[User Smartphone]
+    PI -->|Instant Telegram Snapshot & Siren| USER
 ```
 
 ### 1. AI Vision & Smart Security Cameras (Real-Time Threat Alerts)
