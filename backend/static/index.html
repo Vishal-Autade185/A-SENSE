@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A-SENSE Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #38bdf8;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --border: #334155;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 20px; }
+    header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+    h1 { font-size: 1.5rem; color: var(--accent); }
+    .badge { padding: 4px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+    .badge-online { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+    .badge-offline { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+    
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .card-title { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+    .metric { font-size: 2.2rem; font-weight: 700; color: var(--text); }
+    .metric-unit { font-size: 1.2rem; color: var(--muted); font-weight: 400; }
+    .freshness { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+
+    .control-row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+    .btn {
+      padding: 10px 18px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-on { background: var(--success); color: white; }
+    .btn-off { background: var(--danger); color: white; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    .dot-green { background: var(--success); }
+    .dot-red { background: var(--danger); }
+
+    .event-log { font-family: monospace; font-size: 0.85rem; max-height: 200px; overflow-y: auto; background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border); }
+    .event-line { margin-bottom: 6px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>A-SENSE Dashboard</h1>
+        <p style="color: var(--muted); font-size: 0.85rem;">Local Smart-Environment Orchestrator</p>
+      </div>
+      <div id="system-status">
+        <span class="badge badge-online">System Live</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- Temperature Card -->
+      <div class="card">
+        <div class="card-title">Room Temperature</div>
+        <div class="metric"><span id="temp-val">--.-</span> <span class="metric-unit">°C</span></div>
+        <div class="freshness" id="temp-age">Awaiting readings...</div>
+      </div>
+
+      <!-- Humidity Card -->
+      <div class="card">
+        <div class="card-title">Room Humidity</div>
+        <div class="metric"><span id="hum-val">--.-</span> <span class="metric-unit">%</span></div>
+        <div class="freshness" id="hum-status"><span class="status-dot dot-red"></span>Sensor-01 Offline</div>
+      </div>
+    </div>
+
+    <!-- Actuators Card -->
+    <div class="card">
+      <div class="card-title">Actuators & Controls</div>
+      
+      <div class="control-row">
+        <div>
+          <strong>Relay 1 (Primary Appliance)</strong>
+          <div style="font-size: 0.8rem; color: var(--muted);" id="relay-1-status">State: UNKNOWN</div>
+        </div>
+        <div>
+          <button class="btn btn-on" onclick="sendRelayCommand('relay-01', 'ON')">ON</button>
+          <button class="btn btn-off" onclick="sendRelayCommand('relay-01', 'OFF')">OFF</button>
+        </div>
+      </div>
+      
+      <hr style="border: 0; border-top: 1px solid var(--border); margin: 16px 0;">
+
+      <div class="control-row">
+        <div>
+          <strong>Relay 2 (Auxiliary)</strong>
+          <div style="font-size: 0.8rem; color: var(--muted);" id="relay-2-status">State: UNKNOWN</div>
+        </div>
+        <div>
+          <button class="btn btn-on" onclick="sendRelayCommand('relay-02', 'ON')">ON</button>
+          <button class="btn btn-off" onclick="sendRelayCommand('relay-02', 'OFF')">OFF</button>
+        </div>
+      </div>
+    <!-- Proactive Recommendation Banner (Auto-pops up when anomalies/comfort alerts trigger) -->
+    <div class="card" id="proactive-card" style="display: none; border: 1px solid var(--accent); background: rgba(56, 189, 248, 0.08);">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.4rem;">💡</span>
+          <div>
+            <div style="font-weight: 700; color: var(--accent); font-size: 0.95rem;">Proactive Smart Suggestion</div>
+            <div id="proactive-message" style="color: var(--text); font-size: 0.9rem; margin-top: 2px;">Analyzing room conditions...</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-on" id="proactive-approve-btn" onclick="approveAlert()">Turn ON</button>
+          <button class="btn" style="background: #334155; color: white;" onclick="dismissAlert()">Dismiss</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Agent Chat Card -->
+    <div class="card">
+      <div class="card-title">A-SENSE AI Home Assistant (Local Qwen-3.5)</div>
+      <div id="chat-messages" style="display: flex; flex-direction: column; gap: 10px; max-height: 250px; overflow-y: auto; background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 12px;">
+        <div style="color: var(--accent); font-size: 0.9rem;"><strong>A-SENSE:</strong> Hello! I am your local home assistant. You can ask me about room conditions or ask me to turn on/off the fan or appliances.</div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="chat-input" placeholder="e.g. Is it hot in here? Or: Turn on Relay 1" 
+               style="flex: 1; padding: 10px 14px; background: #090d16; border: 1px solid var(--border); border-radius: 8px; color: var(--text); outline: none;">
+        <button class="btn btn-on" style="background: var(--accent); color: #090d16;" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
+      </div>
+    </div>
+
+    <!-- Live Event Feed -->
+    <div class="card">
+      <div class="card-title">System Events & Command Audit</div>
+      <div class="event-log" id="event-log">
+        <div class="event-line">[System] Connecting to local API...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function sendChatMessage() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const chatBox = document.getElementById('chat-messages');
+      const sendBtn = document.getElementById('chat-send-btn');
+
+      // Append user message
+      const userDiv = document.createElement('div');
+      userDiv.style.color = '#f8fafc';
+      userDiv.style.fontSize = '0.9rem';
+      userDiv.innerHTML = `<strong>You:</strong> ${text}`;
+      chatBox.appendChild(userDiv);
+      input.value = '';
+      sendBtn.disabled = true;
+      sendBtn.innerText = 'Thinking...';
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      try {
+        const res = await fetch('/api/agent/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+
+        const agentDiv = document.createElement('div');
+        agentDiv.style.color = 'var(--accent)';
+        agentDiv.style.fontSize = '0.9rem';
+
+        let actionTag = '';
+        if (data.actions && data.actions.length > 0) {
+          actionTag = `<div style="font-size: 0.75rem; color: var(--muted); margin-top: 4px;">🛠 Executed: ${data.actions.map(a => a.tool).join(', ')}</div>`;
+        }
+
+        agentDiv.innerHTML = `<strong>A-SENSE:</strong> ${data.reply} ${actionTag}`;
+        chatBox.appendChild(agentDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        updateState();
+      } catch (e) {
+        const errDiv = document.createElement('div');
+        errDiv.style.color = 'var(--danger)';
+        errDiv.innerText = `Error: ${e.message}`;
+        chatBox.appendChild(errDiv);
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerText = 'Send';
+      }
+    }
+
+    // Allow Enter key to send message
+    document.getElementById('chat-input').addEventListener('keypress', function (e) {
+      if (e.key === 'Enter') sendChatMessage();
+    });
+    async function updateState() {
+      try {
+        const res = await fetch('/api/state');
+        if (!res.ok) return;
+        const data = await res.parse ? await res.parse() : await res.json();
+
+        // Update readings
+        if (data.latest_reading) {
+          document.getElementById('temp-val').innerText = data.latest_reading.temperature_c.toFixed(1);
+          document.getElementById('hum-val').innerText = data.latest_reading.humidity_pct.toFixed(1);
+          document.getElementById('temp-age').innerText = `Updated ${data.freshness_sec !== null ? data.freshness_sec + 's ago' : 'recently'}`;
+        }
+
+        // Update devices
+        if (data.devices) {
+          data.devices.forEach(d => {
+            if (d.device_id === 'sensor-01') {
+              const el = document.getElementById('hum-status');
+              el.innerHTML = d.online 
+                ? `<span class="status-dot dot-green"></span>Sensor-01 Online`
+                : `<span class="status-dot dot-red"></span>Sensor-01 Offline`;
+            } else if (d.device_id === 'relay-01') {
+              document.getElementById('relay-1-status').innerText = `State: ${d.reported_state || 'OFF'} (${d.online ? 'Online' : 'Offline'})`;
+            } else if (d.device_id === 'relay-02') {
+              document.getElementById('relay-2-status').innerText = `State: ${d.reported_state || 'OFF'} (${d.online ? 'Online' : 'Offline'})`;
+            }
+          });
+        }
+      } catch (err) {
+        console.error('State poll failed', err);
+      }
+    }
+
+    async function sendRelayCommand(deviceId, state) {
+      appendLog(`Sending command to ${deviceId}: ${state}...`);
+      try {
+        const res = await fetch(`/api/devices/${deviceId}/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state })
+        });
+        const result = await res.json();
+        if (res.ok) {
+          appendLog(`Confirmed: ${deviceId} is now ${result.confirmed_state}`);
+          updateState();
+        } else {
+          appendLog(`Error [${res.status}]: ${result.detail || 'Failed'}`);
+        }
+      } catch (e) {
+        appendLog(`Network error sending command: ${e.message}`);
+      }
+    }
+
+    function appendLog(text) {
+      const log = document.getElementById('event-log');
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.className = 'event-line';
+      div.innerText = `[${time}] ${text}`;
+      log.prepend(div);
+    }
+
+    // Proactive Alert Polling and Actions
+    let currentAlertId = null;
+
+    async function checkProactiveAlerts() {
+      try {
+        const res = await fetch('/api/proactive/alerts');
+        if (!res.ok) return;
+        const data = await res.json();
+        const card = document.getElementById('proactive-card');
+
+        if (data.alerts && data.alerts.length > 0) {
+          const alert = data.alerts[0]; // Most recent pending alert
+          currentAlertId = alert.id;
+          document.getElementById('proactive-message').innerText = alert.message;
+          document.getElementById('proactive-approve-btn').innerText = `Turn ${alert.recommended_state}`;
+          card.style.display = 'block';
+        } else {
+          card.style.display = 'none';
+          currentAlertId = null;
+        }
+      } catch (err) {
+        console.error('Failed checking proactive alerts', err);
+      }
+    }
+
+    async function approveAlert() {
+      if (!currentAlertId) return;
+      appendLog(`Approving proactive recommendation #${currentAlertId}...`);
+      try {
+        const res = await fetch(`/api/proactive/alerts/${currentAlertId}/approve`, { method: 'POST' });
+        const result = await res.json();
+        if (res.ok) {
+          appendLog(`Proactive action approved! Relay switched.`);
+          checkProactiveAlerts();
+          updateState();
+        }
+      } catch (e) {
+        appendLog(`Approval failed: ${e.message}`);
+      }
+    }
+
+    async function dismissAlert() {
+      if (!currentAlertId) return;
+      try {
+        await fetch(`/api/proactive/alerts/${currentAlertId}/dismiss`, { method: 'POST' });
+        document.getElementById('proactive-card').style.display = 'none';
+        appendLog(`Proactive alert #${currentAlertId} dismissed.`);
+        currentAlertId = null;
+      } catch (e) {}
+    }
+
+    // Poll state every 2 seconds, check proactive alerts every 4 seconds
+    setInterval(updateState, 2000);
+    setInterval(checkProactiveAlerts, 4000);
+    updateState();
+    checkProactiveAlerts();
+  </script>
+</body>
+</html>
