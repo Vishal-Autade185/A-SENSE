@@ -15,14 +15,15 @@
 // ==============================================================================
 
 #include <WiFi.h>
+#include <WiFiManager.h> // Dynamic Wi-Fi provisioning via Captive Portal
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
 // ------------------------------------------------------------------------------
 // 1. CONFIGURATION
 // ------------------------------------------------------------------------------
-const char* WIFI_SSID     = "omkar_5g";
-const char* WIFI_PASSWORD = "Rutejpark403";
+// Note: Wi-Fi credentials are now managed dynamically via WiFiManager captive portal!
+// If connection to saved Wi-Fi fails, it launches AP "A-SENSE-Relay-Setup"
 
 const char* MQTT_BROKER   = "192.168.1.18"; // Raspberry Pi IP
 const int   MQTT_PORT     = 1883;
@@ -146,20 +147,23 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 // 5. WI-FI & MQTT LIFECYCLE
 // ------------------------------------------------------------------------------
 void setupWiFi() {
-  delay(10);
-  Serial.println();
-  Serial.print("Connecting to Wi-Fi SSID: ");
-  Serial.println(WIFI_SSID);
+  Serial.println("\n[Wi-Fi] Initializing connection with WiFiManager...");
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFiManager wm;
+  // If connection fails, spin up configuration portal for 180 seconds before retrying
+  wm.setConfigPortalTimeout(180);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  // Automatically connects using saved credentials.
+  // If no credentials exist or connection fails, launches AP: "A-SENSE-Relay-Setup"
+  bool connected = wm.autoConnect("A-SENSE-Relay-Setup");
+
+  if (!connected) {
+    Serial.println("[Wi-Fi] Failed to connect and portal timed out. Restarting ESP32...");
+    delay(3000);
+    ESP.restart();
   }
 
-  Serial.println("\n[Wi-Fi] Connected!");
+  Serial.println("[Wi-Fi] Connected successfully!");
   Serial.print("[Wi-Fi] IP Address: ");
   Serial.println(WiFi.localIP());
 }
